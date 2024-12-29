@@ -1,0 +1,88 @@
+#!/usr/bin/env node
+
+const fs = require('fs');
+
+const conversations = JSON.parse(
+  fs.readFileSync(
+    process.argv[2]
+  )
+);
+
+const replaceAntThinking = text =>
+      text
+      .replaceAll('<antThinking>', '/.oO(')
+      .replaceAll('</antThinking>', ')/');
+
+const formatAntArtifactHeader = headerTag => {
+  let header = "";
+  const title = headerTag.match(/title="([^"]+)"/);
+  if (title) {
+    header += `\n*** ${title[1]}`;
+  }
+  header += "#+begin_src";
+  let language  = headerTag.match(/language="([^"]+)"/);
+  if (language) {
+    header += ` ${language[1]}`;
+  }
+  //header += "\n";
+  return header;
+};
+
+const replaceAntArtifact = text =>
+    text
+    .replaceAll(
+      /<antArtifact([^>]*)\>/g,
+      formatAntArtifactHeader
+    )
+    .replaceAll('</antArtifact>', "\n#+end_src");
+
+const printText = c => {
+  console.log(
+    replaceAntArtifact(
+      replaceAntThinking(
+        c.text
+      )
+    )
+  );
+};
+
+const printToolUse = c => {
+  if (c.input.content) {
+    console.log(`\n*** ${c.input.id}`);
+    console.log("#+begin_src");
+    if (c.input.content) {
+      console.log(c.input.content);
+    } else if (c.input.new_str) {
+      console.log(c.input.new_str);
+    }   else console.log(c);
+    console.log("#+end_src");
+  }
+
+};
+
+const printContent = content => {
+  content.forEach(
+    c => {
+      if (c.type == "text") {
+        printText(c);
+      } else if (c.type == "tool_use") {
+        printToolUse(c);
+      }
+    }
+  );
+};
+
+const printMessages = messages => {
+  messages.forEach(message => {
+    console.log(`\n** ${message.sender}`);
+    printContent(message.content);
+  });
+};
+
+const printConversation = conversation => {
+    console.log(`* ${conversation.name}`);
+  printMessages(conversation.chat_messages);
+  console.log("");
+};
+
+conversations.forEach(printConversation);

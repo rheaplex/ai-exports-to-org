@@ -1,0 +1,113 @@
+#!/usr/bin/env node
+
+const fs = require('fs');
+
+const conversations = JSON.parse(
+  fs.readFileSync(
+    process.argv[2]
+  )
+);
+
+const validMessage = message =>
+      message
+      && message.content
+      && message.content.parts
+      && message.content.parts.length > 0
+      && (message.author.role !== "system"
+       || message.metadata.is_user_system_message);
+
+const messageAuthor = author => {
+  switch (author) {
+  case "assistant":
+  case "tool":
+    return "ChatGPT";
+    break;
+  case "system":
+    return "System";
+    break;
+  default:
+    return author;
+    break;
+  };
+};
+
+const validContent = content =>
+      content.content_type == "text"
+      || content.content_type == "multimodal_text";
+
+const collectParts = parts => {
+  let collected = [];
+  parts.forEach(
+    part => {
+      if (typeof part === "string" && part.length > 0) {
+        collected.push({text: part});
+      } else if (part.content_type == "audio_transcription") {
+        collected.push({transcript: part.text});
+      }
+    }
+  );
+  return collected;
+};
+
+const processNode = (conversation, currentNode, messages) => {
+  const node = conversation.mapping[currentNode];
+    const message = node.message;
+    if (validMessage(message)) {
+      const author = messageAuthor(message.author.role);
+      const content = message.content;
+      if (validContent(content)) {
+        let parts = collectParts(content.parts);
+        if (parts.length > 0) {
+          messages.push({ author, parts: parts });
+        }
+      }
+    }
+  return node.parent;
+};
+
+function getConversationMessages(conversation) {
+  let messages = [];
+  let currentNode = conversation.current_node;
+  while (currentNode) {
+    currentNode = processNode(
+      conversation,
+      currentNode,
+      messages
+    );
+  }
+  return messages.reverse();
+}
+
+const mdToOrg = text =>
+      text
+// Convert markdown ``` to org source blocks.
+      .replaceAll("```\n\n", "#+end_src\n")
+      .replaceAll(/```([^\n]*)/g, "#+begin_src $1")
+// Convert markdown hrs to org.
+      .replaceAll("\n---\n", "\n-----\n")
+// Ensure latex code is parsable
+      .replaceAll(/[\\]\((?! )/g, "\\( ")
+      .replaceAll(/(?! )[\\]\)/g, " \\)");
+
+const printMessagePart = part => {
+  if (part.text) {
+    console.log(`${mdToOrg(part.text)}\n`);
+  } else {
+    console.error(`Part unknown: ${part}`);
+  }
+};
+
+const printMessage = message => {
+  console.log(`** ${message.author}`);
+  if (message.parts) {
+    message.parts.forEach(printMessagePart);
+  }
+};
+
+const printConversation = conversation => {
+  console.log(`* ${conversation.title}`);
+  getConversationMessages(conversation)
+    .forEach(printMessage);
+};
+
+conversations.forEach(printConversation);
